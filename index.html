@@ -253,6 +253,13 @@ body {
               <div id="sentenceStartersBox" class="flex flex-wrap gap-1.5"></div>
             </div>
 
+            <div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-slate-300">
+              <label class="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" id="autoScoreToggle" class="accent-emerald-400" checked /> ⚡ Tự động ghi âm &amp; chấm Band khi nói xong</label>
+              <label class="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" id="autoMicToggle" class="accent-sky-400" checked /> 🎙️ Tự bật mic sau khi Giám khảo hỏi</label>
+              <span id="autoRecStatus" class="ml-auto text-slate-400"></span>
+            </div>
+            <div id="lastRecordingBox" class="hidden mt-2"></div>
+
             <!-- Khu vực Thu âm Giọng nói & Nhập liệu Phản hồi -->
             <div class="mt-3 pt-3 border-t border-slate-800 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
               <button type="button" id="micRecordBtn" class="px-4 py-3 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg transition-all shrink-0">
@@ -1790,6 +1797,7 @@ window.SpeechEngine = (function() {
   let customPitchMultiplier = 1.0;
   let audioCtx = null;
   let soundMuted = false;
+  let confSum = 0, confCount = 0;
 
   function initVoices(onLoaded) {
     if (!synth) return;
@@ -2002,6 +2010,7 @@ window.SpeechEngine = (function() {
 
     currentTranscript = "";
     interimTranscript = "";
+    confSum = 0; confCount = 0;
     isRecognizing = true;
 
     recognition.onstart = function() {
@@ -2014,6 +2023,7 @@ window.SpeechEngine = (function() {
       for (let i = event.resultIndex; i < event.results.length; ++i) {
         if (event.results[i].isFinal) {
           currentTranscript += event.results[i][0].transcript + " ";
+          if (event.results[i][0].confidence > 0) { confSum += event.results[i][0].confidence; confCount++; }
         } else {
           interimTranscript += event.results[i][0].transcript;
         }
@@ -2026,14 +2036,14 @@ window.SpeechEngine = (function() {
     recognition.onerror = function(event) {
       isRecognizing = false;
       if (callbacks.onError) {
-        callbacks.onError("Không thể thu âm từ Micro (" + (event.error || "permission") + "). Hãy sử dụng nút 'Nói thử mẫu' hoặc nhập văn bản trực tiếp vào ô trả lời để AI phân tích Band điểm!");
+        callbacks.onError("Không thể thu âm từ Micro (" + (event.error || "permission") + "). Hãy sử dụng nút 'Nói thử mẫu' hoặc nhập văn bản trực tiếp vào ô trả lời để AI phân tích Band điểm!", event.error);
       }
     };
 
     recognition.onend = function() {
       isRecognizing = false;
       playCueTone("stop");
-      if (callbacks.onEnd) callbacks.onEnd(currentTranscript.trim());
+      if (callbacks.onEnd) callbacks.onEnd(currentTranscript.trim(), { avgConfidence: confCount ? confSum / confCount : 0 });
     };
 
     try {
@@ -2085,6 +2095,91 @@ window.SpeechEngine = (function() {
     isMuted,
     playCueTone
   };
+})();
+
+
+/**
+ * Module Ghi âm thật & Phát hiện học viên nói xong (VoiceRecorder)
+ * - MediaRecorder lưu file ghi âm để nghe lại; AnalyserNode đo âm lượng để biết đang nói / đang im lặng
+ * - Đo số lần ngập ngừng (pause) và thời gian nói thật để chấm Fluency chính xác hơn
+ */
+window.VoiceRecorder = (function() {
+  let stream = null, ctx = null, analyser = null, rec = null, chunks = [], timer = null, buf = null, m = null, opts = {};
+  const VOICE_RMS = 0.018;
+
+  async function start(options) {
+    opts = options || {};
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    } catch (e) { stream = null; return false; }
+    m = { startedAt: Date.now(), hasSpoken: false, lastVoiceAt: 0, speakingMs: 0, pauses: 0, longPauses: 0 };
+    chunks = [];
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      ctx = new AC();
+      analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      ctx.createMediaStreamSource(stream).connect(analyser);
+      buf = new Float32Array(analyser.fftSize);
+    } catch (e) { analyser = null; }
+    try {
+      rec = new MediaRecorder(stream);
+      rec.ondataavailable = function(ev) { if (ev.data && ev.data.size) chunks.push(ev.data); };
+      rec.start();
+    } catch (e) { rec = null; }
+    timer = setInterval(tick, 100);
+    return true;
+  }
+
+  function tick() {
+    if (!analyser || !m) return;
+    analyser.getFloatTimeDomainData(buf);
+    let sum = 0;
+    for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+    const now = Date.now();
+    if (Math.sqrt(sum / buf.length) > VOICE_RMS) {
+      if (m.hasSpoken) {
+        const gap = now - m.lastVoiceAt;
+        if (gap > 600) m.pauses++;
+        if (gap > 1500) m.longPauses++;
+      }
+      m.hasSpoken = true;
+      m.lastVoiceAt = now;
+      m.speakingMs += 100;
+    }
+    const silentFor = now - (m.hasSpoken ? m.lastVoiceAt : m.startedAt);
+    if (m.hasSpoken && opts.onSilence && silentFor >= (opts.silenceMs || 2500)) {
+      const cb = opts.onSilence; opts.onSilence = null; cb();
+    } else if (!m.hasSpoken && opts.onNoSpeech && silentFor >= (opts.noSpeechMs || 9000)) {
+      const cb = opts.onNoSpeech; opts.onNoSpeech = null; cb();
+    }
+  }
+
+  function stop() {
+    return new Promise(function(resolve) {
+      if (!stream) { resolve(null); return; }
+      clearInterval(timer); timer = null;
+      const finish = function() {
+        const blob = chunks.length ? new Blob(chunks, { type: (rec && rec.mimeType) || "audio/webm" }) : null;
+        const out = {
+          url: blob ? URL.createObjectURL(blob) : "",
+          durationSec: (Date.now() - m.startedAt) / 1000,
+          speakingSec: m.speakingMs / 1000,
+          pauses: m.pauses,
+          longPauses: m.longPauses
+        };
+        stream.getTracks().forEach(function(t) { t.stop(); });
+        if (ctx) { try { ctx.close(); } catch (e) {} }
+        stream = ctx = analyser = rec = null;
+        resolve(out);
+      };
+      if (rec && rec.state !== "inactive") { rec.onstop = finish; try { rec.stop(); } catch (e) { finish(); } }
+      else finish();
+    });
+  }
+
+  return { start: start, stop: stop };
 })();
 
 
@@ -2190,6 +2285,17 @@ window.IELTSEvaluator = (function() {
     let grammarScore = Math.min(9.0, Math.max(3.0, (baseTarget - 0.5) + grammarBonus + lengthFactor * 0.4));
     let pronScore = Math.min(9.0, Math.max(3.5, (baseTarget - 0.3) + (wordCount >= 12 ? 0.6 : 0.2)));
 
+    const au = context.audio;
+    if (au) {
+      const artRate = au.speakingSec > 1 ? (wordCount / au.speakingSec) * 60 : 0;
+      if (artRate >= 100 && artRate <= 185) fluencyScore += 0.3;
+      else if (artRate > 0 && artRate < 70) fluencyScore -= 0.5;
+      fluencyScore -= Math.min(1.0, (au.longPauses || 0) * 0.25 + (au.pauses || 0) * 0.05);
+      if (au.avgConfidence > 0) pronScore += Math.max(-1, Math.min(1, (au.avgConfidence - 0.82) * 5));
+      fluencyScore = Math.min(9.0, Math.max(3.0, fluencyScore));
+      pronScore = Math.min(9.0, Math.max(3.5, pronScore));
+    }
+
     // Làm tròn chuẩn 0.5 IELTS
     function roundHalf(num) {
       return Math.round(num * 2) / 2;
@@ -2251,7 +2357,7 @@ window.IELTSEvaluator = (function() {
       grammarScore,
       pronScore,
       wordCount,
-      wpm: Math.min(165, Math.max(75, wpm)),
+      wpm: context.audio ? Math.min(200, Math.max(60, wpm)) : Math.min(165, Math.max(75, wpm)),
       lexicalDiversity,
       usedConnectors,
       detectedFillers,
@@ -2297,7 +2403,20 @@ window.IELTSEvaluator = (function() {
     chatMessages: [],
     latestEvaluation: null,
     historySessions: [],
-    waveformAnimId: null
+    waveformAnimId: null,
+    autoScore: true,
+    autoMic: true,
+    micGranted: false,
+    finishing: false,
+    finishReason: "",
+    finishTimer: null,
+    fallbackVadId: null,
+    recorderOn: false,
+    lastResultAt: 0,
+    avgConfidence: 0,
+    pendingAudio: null,
+    lastAudioUrl: "",
+    speakToken: 0
   };
 
   function loadSavedState() {
@@ -2766,6 +2885,7 @@ window.IELTSEvaluator = (function() {
   }
 
   function speakAI(text, onDone) {
+    const token = ++state.speakToken;
     const persona = getCurrentPersonaObj();
     window.SpeechEngine.setProsody(state.voiceRate, state.voicePitch);
     window.SpeechEngine.speakText(text, persona, {
@@ -2776,62 +2896,160 @@ window.IELTSEvaluator = (function() {
       onEnd: function() {
         state.isAISpeaking = false;
         renderActiveStageHeader();
-        if (typeof onDone === "function") onDone();
+        if (typeof onDone === "function" && token === state.speakToken) onDone();
       }
     });
   }
 
-  // Bắt đầu hoặc Dừng Thu âm Giọng nói 1:1
-  function toggleRecording() {
+  // ===== Tự động ghi âm & chấm Band khi học viên nói xong =====
+  const SILENCE_MS = { part1: 2500, part2: 4000, part3: 3000, shadowing: 2000 };
+
+  function setAutoStatus(msg) {
+    const el = document.getElementById("autoRecStatus");
+    if (el) el.textContent = msg || "";
+  }
+
+  function setRecordingUI(on) {
+    state.isRecording = on;
+    if (!on && state.fallbackVadId) { clearInterval(state.fallbackVadId); state.fallbackVadId = null; }
     const micBtn = document.getElementById("micRecordBtn");
+    if (micBtn) micBtn.classList.toggle("mic-recording", on);
+    renderActiveStageHeader();
+  }
+
+  function showLastRecording(rec) {
+    const box = document.getElementById("lastRecordingBox");
+    if (!box) return;
+    if (state.lastAudioUrl) { try { URL.revokeObjectURL(state.lastAudioUrl); } catch (e) {} state.lastAudioUrl = ""; }
+    if (!rec || !rec.url) { box.classList.add("hidden"); return; }
+    state.lastAudioUrl = rec.url;
+    box.classList.remove("hidden");
+    box.innerHTML = '<div class="flex items-center gap-2 text-[11px] text-slate-300"><span class="shrink-0">🎧 Bài nói vừa ghi (' + Math.round(rec.durationSec) + ' giây):</span><audio controls src="' + rec.url + '" class="h-8 flex-1 min-w-0"></audio></div>';
+  }
+
+  // Tự bật mic sau khi Giám khảo hỏi xong (chỉ sau khi học viên đã cấp quyền micro; Part 2 có 1 phút chuẩn bị nên không tự bật)
+  function autoListen() {
+    if (!state.autoMic || !state.micGranted || state.activeTab !== "studio" || state.selectedPart === "part2") return;
+    setTimeout(function() {
+      if (!state.isRecording && !state.finishing && !state.isAISpeaking) startRecording(true);
+    }, 350);
+  }
+
+  async function startRecording(auto) {
+    if (state.isRecording || state.finishing) return;
+    state.finishing = true;
+    state.finishReason = "";
     const inputEl = document.getElementById("userSpeechInput");
-
-    if (state.isRecording) {
-      window.SpeechEngine.stopRecognition();
-      stopRecordingTimer();
-      state.isRecording = false;
-      if (micBtn) micBtn.classList.remove("mic-recording");
-      renderActiveStageHeader();
-      return;
-    }
-
     const persona = getCurrentPersonaObj();
+    window.SpeechEngine.stopSpeaking();
+    const recOk = await window.VoiceRecorder.start({
+      silenceMs: SILENCE_MS[state.selectedPart] || 3000,
+      noSpeechMs: 9000,
+      onSilence: function() { finishRecording("silence"); },
+      onNoSpeech: function() { finishRecording("nospeech"); }
+    });
+    state.finishing = false;
+    state.recorderOn = recOk;
+    state.avgConfidence = 0;
+
     const started = window.SpeechEngine.startRecognition(persona.accent || "en-US", {
       onStart: function() {
-        state.isRecording = true;
+        state.micGranted = true;
         state.recordingStartTime = Date.now();
+        state.lastResultAt = 0;
         startRecordingTimer();
-        if (micBtn) micBtn.classList.add("mic-recording");
-        renderActiveStageHeader();
-        showToast("Micro đang thu âm! Hãy nói tự nhiên bằng tiếng Anh...", "info");
-      },
-      onResult: function(finalText, interimText) {
-        if (inputEl) {
-          inputEl.value = (finalText + " " + interimText).trim();
+        setRecordingUI(true);
+        setAutoStatus(state.autoScore ? "🔴 Đang ghi âm — em nói xong và dừng lại, AI sẽ tự chấm Band" : "🔴 Đang ghi âm");
+        if (!recOk) {
+          state.fallbackVadId = setInterval(function() {
+            if (state.lastResultAt && Date.now() - state.lastResultAt > (SILENCE_MS[state.selectedPart] || 3000) + 700) finishRecording("silence");
+          }, 500);
         }
       },
-      onError: function(errMsg) {
-        state.isRecording = false;
-        stopRecordingTimer();
-        if (micBtn) micBtn.classList.remove("mic-recording");
-        renderActiveStageHeader();
-        showToast(errMsg, "warning");
+      onResult: function(finalText, interimText) {
+        state.lastResultAt = Date.now();
+        if (inputEl) inputEl.value = (finalText + " " + interimText).trim();
       },
-      onEnd: function() {
-        state.isRecording = false;
+      onError: function(msg, code) {
+        if (code === "no-speech" || code === "aborted") return;
+        window.VoiceRecorder.stop();
         stopRecordingTimer();
-        if (micBtn) micBtn.classList.remove("mic-recording");
-        renderActiveStageHeader();
+        state.finishing = false;
+        setRecordingUI(false);
+        setAutoStatus("");
+        showToast(msg, "warning");
+      },
+      onEnd: function(_t, meta) {
+        state.avgConfidence = (meta && meta.avgConfidence) || 0;
+        if (state.isRecording) completeRecording();
       }
     });
 
-    if (!started && inputEl && !inputEl.value.trim()) {
-      // Điền sẵn gợi ý mẫu nếu môi trường sandbox không có micro vật lý để người dùng trải nghiệm ngay
-      const qData = getActiveQuestionData();
-      if (qData.sample) {
-        inputEl.value = qData.sample;
+    if (!started) {
+      window.VoiceRecorder.stop();
+      // Khi bật tự chấm điểm, không điền bài mẫu để tránh chấm nhầm câu học viên chưa nói
+      if (!state.autoScore && inputEl && !inputEl.value.trim()) {
+        const qData = getActiveQuestionData();
+        if (qData.sample) inputEl.value = qData.sample;
       }
     }
+  }
+
+  function finishRecording(reason) {
+    if (!state.isRecording || state.finishing) return;
+    state.finishing = true;
+    state.finishReason = reason;
+    setAutoStatus("⏳ Đã nhận diện em nói xong — đang xử lý...");
+    window.SpeechEngine.stopRecognition();
+    clearTimeout(state.finishTimer);
+    state.finishTimer = setTimeout(completeRecording, 1200);
+  }
+
+  async function completeRecording() {
+    if (!state.isRecording) return;
+    clearTimeout(state.finishTimer);
+    stopRecordingTimer();
+    setRecordingUI(false);
+    const rec = await window.VoiceRecorder.stop();
+    state.finishing = false;
+    const inputEl = document.getElementById("userSpeechInput");
+    const text = inputEl ? inputEl.value.trim() : "";
+    showLastRecording(rec);
+    if (!text) {
+      setAutoStatus("");
+      showToast(state.finishReason === "nospeech" ? "Chưa nghe thấy giọng nói — hãy bấm mic và nói lại nhé!" : "Chưa nhận diện được lời nói, em thử nói rõ hơn nhé!", "warning");
+      return;
+    }
+    const audio = rec ? Object.assign({}, rec, { avgConfidence: state.avgConfidence }) : null;
+    if (state.autoScore) {
+      setAutoStatus("");
+      submitUserSpeakingResponse({ audio: audio });
+      const evBox = document.getElementById("inlineEvalSummaryBox");
+      if (evBox) evBox.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    } else {
+      state.pendingAudio = audio;
+      setAutoStatus('Đã dừng ghi âm — bấm "Chấm điểm AI" để nhận Band.');
+    }
+  }
+
+  function toggleRecording() {
+    if (state.isRecording) { finishRecording("manual"); return; }
+    startRecording(false);
+  }
+
+  function bindAutoToggles() {
+    try {
+      const saved = JSON.parse(localStorage.getItem("ielts_k12_auto_v1") || "{}");
+      if (saved.autoScore === false) state.autoScore = false;
+      if (saved.autoMic === false) state.autoMic = false;
+    } catch (e) {}
+    function save() {
+      try { localStorage.setItem("ielts_k12_auto_v1", JSON.stringify({ autoScore: state.autoScore, autoMic: state.autoMic })); } catch (e) {}
+    }
+    const a = document.getElementById("autoScoreToggle");
+    const b = document.getElementById("autoMicToggle");
+    if (a) { a.checked = state.autoScore; a.addEventListener("change", function() { state.autoScore = a.checked; save(); }); }
+    if (b) { b.checked = state.autoMic; b.addEventListener("change", function() { state.autoMic = b.checked; save(); }); }
   }
 
   function startRecordingTimer() {
@@ -2856,7 +3074,9 @@ window.IELTSEvaluator = (function() {
   }
 
   // Nộp câu trả lời để AI chấm điểm 4 tiêu chí & Phản hồi 1:1
-  function submitUserSpeakingResponse() {
+  function submitUserSpeakingResponse(arg) {
+    const au = (arg && arg.audio) || state.pendingAudio || null;
+    state.pendingAudio = null;
     const inputEl = document.getElementById("userSpeechInput");
     if (!inputEl) return;
     const text = inputEl.value.trim();
@@ -2866,7 +3086,10 @@ window.IELTSEvaluator = (function() {
     }
 
     if (state.isRecording) {
-      toggleRecording();
+      window.SpeechEngine.stopRecognition();
+      stopRecordingTimer();
+      window.VoiceRecorder.stop();
+      setRecordingUI(false);
     }
 
     const gObj = getCurrentGradeObj();
@@ -2877,7 +3100,8 @@ window.IELTSEvaluator = (function() {
     const evalResult = window.IELTSEvaluator.evaluateResponse(text, {
       cefr: gObj.cefr,
       vocab: topic ? topic.vocab : [],
-      durationSec: state.recordingSeconds > 3 ? state.recordingSeconds : Math.max(8, Math.round(text.split(/\s+/).length / 2.2)),
+      durationSec: au ? Math.max(4, au.speakingSec + (au.pauses || 0) * 0.6) : (state.recordingSeconds > 3 ? state.recordingSeconds : Math.max(8, Math.round(text.split(/\s+/).length / 2.2))),
+      audio: au,
       defaultFollowUp: qData.followUp
     });
 
@@ -2916,7 +3140,7 @@ window.IELTSEvaluator = (function() {
     renderChatStream();
     renderInlineEvaluationPreview();
     renderDetailedReportTab();
-    speakAI(evalResult.dynamicFollowUp);
+    speakAI(evalResult.dynamicFollowUp, autoListen);
     showToast("Đã chấm điểm AI: Overall Band " + evalResult.overallBand + "!", "success");
   }
 
@@ -3281,7 +3505,7 @@ window.IELTSEvaluator = (function() {
         });
         renderActiveStageHeader();
         renderChatStream();
-        speakAI(qData.prompt);
+        speakAI(qData.prompt, autoListen);
       });
     });
 
@@ -3289,7 +3513,7 @@ window.IELTSEvaluator = (function() {
     if (speakQuestionBtn) {
       speakQuestionBtn.addEventListener("click", function() {
         const qData = getActiveQuestionData();
-        speakAI(qData.prompt);
+        speakAI(qData.prompt, autoListen);
       });
     }
 
@@ -3316,7 +3540,7 @@ window.IELTSEvaluator = (function() {
         });
         renderActiveStageHeader();
         renderChatStream();
-        speakAI(qData.prompt);
+        speakAI(qData.prompt, autoListen);
       });
     }
 
@@ -3404,6 +3628,7 @@ window.IELTSEvaluator = (function() {
     populateSystemVoiceSelect();
     resetStudioConversation();
     bindEvents();
+    bindAutoToggles();
     renderAll();
     startWaveformLoop();
   });
