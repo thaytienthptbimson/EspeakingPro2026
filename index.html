@@ -109,7 +109,6 @@ body {
         <button type="button" data-tab="studio" class="main-nav-tab px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-600 text-white shadow-lg transition-all">🎙️ Phòng Luyện 1:1</button>
         <button type="button" data-tab="curriculum" class="main-nav-tab px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:bg-slate-800 hover:text-white transition-all">📚 12 Lớp & Chủ đề (A1-C2)</button>
         <button type="button" data-tab="report" class="main-nav-tab px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:bg-slate-800 hover:text-white transition-all">📊 Chấm điểm AI 4 Tiêu chí</button>
-        <button type="button" data-tab="files" class="main-nav-tab px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:bg-slate-800 hover:text-white transition-all">🗂️ Mã nguồn 12 File Lớp</button>
         <button type="button" id="muteToggleBtn" class="px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all">🔊 Âm thanh: Bật</button>
       </nav>
     </div>
@@ -129,7 +128,6 @@ body {
           <button type="button" data-cefr="C1" class="cefr-filter-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 text-slate-400 hover:text-white">C1 (Lớp 9-10)</button>
           <button type="button" data-cefr="C2" class="cefr-filter-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 text-slate-400 hover:text-white">C2 (Lớp 11-12)</button>
         </div>
-        <span class="text-[11px] text-slate-400 hidden md:inline">Mỗi khối lớp được tách file dữ liệu riêng biệt (<code class="text-sky-300">grade1.js</code> → <code class="text-sky-300">grade12.js</code>)</span>
       </div>
 
       <!-- 12 Grades Horizontal Selector -->
@@ -294,34 +292,6 @@ body {
     <!-- TAB 3: BÁO CÁO CHẤM ĐIỂM AI 4 TIÊU CHÍ IELTS -->
     <div id="tabSectionReport" class="hidden space-y-4">
       <div id="reportContentContainer"></div>
-    </div>
-
-    <!-- TAB 4: QUẢN LÝ MÃ NGUỒN 12 FILE LỚP ĐỘC LẬP (MODULAR GRADE FILES) -->
-    <div id="tabSectionFiles" class="hidden space-y-4">
-      <div class="glass-card rounded-2xl p-4 sm:p-5 border border-slate-800">
-        <div class="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-800">
-          <div>
-            <span class="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold">Kiến trúc Phân tách Module</span>
-            <h2 class="text-base sm:text-lg font-extrabold text-white mt-1">Quản lý Mã nguồn Từng Khối Lớp (<code class="text-sky-300">data/grade1.js</code> → <code class="text-sky-300">data/grade12.js</code>)</h2>
-            <p class="text-xs text-slate-400 mt-0.5">Mỗi khối lớp được lưu thành 1 file JavaScript riêng biệt để giáo viên và lập trình viên dễ dàng thêm chủ đề, chỉnh sửa câu hỏi hoặc xuất file lẻ.</p>
-          </div>
-          <div class="flex items-center gap-2">
-            <button type="button" id="saveGradeCodeBtn" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white shadow">💾 Lưu & Áp dụng Sửa đổi</button>
-            <button type="button" id="downloadGradeFileBtn" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white shadow">⬇️ Tải File Lớp này (.js)</button>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-12 gap-4 mt-4">
-          <div class="md:col-span-3 space-y-1.5" id="modularFileTreeList"></div>
-          <div class="md:col-span-9 flex flex-col">
-            <div class="flex items-center justify-between bg-slate-900 px-3.5 py-2 rounded-t-xl border border-b-0 border-slate-700">
-              <span id="activeModularFileName" class="font-mono text-xs font-bold text-sky-300">data/grade1.js</span>
-              <span class="text-[11px] text-slate-400">Có thể chỉnh sửa trực tiếp JSON và bấm "Lưu & Áp dụng"</span>
-            </div>
-            <textarea id="modularCodeEditorArea" rows="20" spellcheck="false" class="w-full font-mono text-xs bg-slate-950 text-emerald-300 border border-slate-700 rounded-b-xl p-3.5 focus:outline-none focus:border-sky-400 leading-relaxed"></textarea>
-          </div>
-        </div>
-      </div>
     </div>
   </main>
 
@@ -2303,11 +2273,11 @@ window.IELTSEvaluator = (function() {
 /**
  * Bộ điều khiển trung tâm Ứng dụng Luyện Nói IELTS 1:1 K-12 (js/app.js)
  * Quản lý trạng thái 12 khối lớp (Lớp 1 - 12), 6 cấp độ CEFR (A1 - C2),
- * Phòng luyện nói 1:1, Chấm điểm AI 4 tiêu chí, Luyện phát âm Shadowing và Quản lý File từng Lớp.
+ * Phòng luyện nói 1:1, Chấm điểm AI 4 tiêu chí và Luyện phát âm Shadowing.
  */
 (function() {
   const state = {
-    activeTab: "studio", // studio | curriculum | report | files
+    activeTab: "studio", // studio | curriculum | report
     selectedGrade: 6,
     selectedCefrFilter: "ALL", // ALL | A1 | A2 | B1 | B2 | C1 | C2
     selectedTopicIndex: 0,
@@ -2327,7 +2297,6 @@ window.IELTSEvaluator = (function() {
     chatMessages: [],
     latestEvaluation: null,
     historySessions: [],
-    selectedCodeFileGrade: 1,
     waveformAnimId: null
   };
 
@@ -3089,7 +3058,6 @@ window.IELTSEvaluator = (function() {
         + '</div>'
         + '<div class="flex items-center gap-2 pt-2 border-t border-slate-800/80">'
         + '<button type="button" data-practice-grade="' + g + '" data-practice-topic="' + tIdx + '" class="practice-now-btn flex-1 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white text-center transition-all">🎙️ Vào Phòng Luyện 1:1</button>'
-        + '<button type="button" data-view-file="' + g + '" class="view-grade-file-btn px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 transition-all" title="Xem mã nguồn file grade' + g + '.js">📄 grade' + g + '.js</button>'
         + '</div>'
         + '</div>'
       ).join("");
@@ -3125,15 +3093,6 @@ window.IELTSEvaluator = (function() {
         resetStudioConversation();
         switchMainTab("studio");
         renderAll();
-      });
-    });
-
-    container.querySelectorAll(".view-grade-file-btn").forEach(btn => {
-      btn.addEventListener("click", function() {
-        const g = parseInt(this.getAttribute("data-view-file"), 10);
-        state.selectedCodeFileGrade = g;
-        switchMainTab("files");
-        renderModularFilesTab();
       });
     });
   }
@@ -3231,95 +3190,12 @@ window.IELTSEvaluator = (function() {
     });
   }
 
-  // Render Tab 4: Quản lý Mã nguồn Tách riêng 12 File Lớp (grade1.js ... grade12.js)
-  function renderModularFilesTab() {
-    const fileListEl = document.getElementById("modularFileTreeList");
-    const codeViewerEl = document.getElementById("modularCodeEditorArea");
-    const fileTitleEl = document.getElementById("activeModularFileName");
-    if (!fileListEl || !codeViewerEl) return;
-
-    const grades = window.IELTS_K12_GRADES || {};
-    let treeHtml = "";
-    for (let g = 1; g <= 12; g++) {
-      const gObj = grades[g];
-      const active = state.selectedCodeFileGrade === g;
-      const cls = active
-        ? "bg-indigo-600 text-white font-bold border-indigo-400"
-        : "bg-slate-900/70 text-slate-300 border-slate-800 hover:border-slate-600";
-      treeHtml += '<button type="button" data-file-grade="' + g + '" class="modular-file-btn w-full text-left px-3 py-2 rounded-xl border text-xs transition-all flex items-center justify-between ' + cls + '">'
-        + '<span>📁 data/grade' + g + '.js</span>'
-        + '<span class="px-1.5 py-0.5 rounded bg-black/30 text-[10px]">' + (gObj ? gObj.cefr : "") + '</span>'
-        + '</button>';
-    }
-    fileListEl.innerHTML = treeHtml;
-
-    const activeGObj = grades[state.selectedCodeFileGrade] || grades[1];
-    if (fileTitleEl && activeGObj) {
-      fileTitleEl.textContent = "data/grade" + activeGObj.grade + ".js — " + activeGObj.title + " (CEFR " + activeGObj.cefr + ")";
-    }
-
-    const generatedCode = [
-      "/**",
-      " * Tệp dữ liệu độc lập: data/grade" + activeGObj.grade + ".js",
-      " * Khối lớp: Lớp " + activeGObj.grade + " | Cấp độ CEFR: " + activeGObj.cefr + " (" + activeGObj.bandTarget + ")",
-      " */",
-      "window.IELTS_K12_GRADES = window.IELTS_K12_GRADES || {};",
-      "window.IELTS_K12_GRADES[" + activeGObj.grade + "] = " + JSON.stringify(activeGObj, null, 2) + ";"
-    ].join(String.fromCharCode(10));
-
-    codeViewerEl.value = generatedCode;
-
-    fileListEl.querySelectorAll(".modular-file-btn").forEach(btn => {
-      btn.addEventListener("click", function() {
-        state.selectedCodeFileGrade = parseInt(this.getAttribute("data-file-grade"), 10);
-        renderModularFilesTab();
-      });
-    });
-  }
-
-  function downloadCurrentGradeFile() {
-    const grades = window.IELTS_K12_GRADES || {};
-    const activeGObj = grades[state.selectedCodeFileGrade] || grades[1];
-    const codeViewerEl = document.getElementById("modularCodeEditorArea");
-    const content = codeViewerEl ? codeViewerEl.value : "";
-    const blob = new Blob([content], { type: "application/javascript;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "grade" + activeGObj.grade + ".js";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    showToast("Đã tải xuống tệp mã nguồn data/grade" + activeGObj.grade + ".js!", "success");
-  }
-
-  function applyCustomGradeCodeEdit() {
-    const codeViewerEl = document.getElementById("modularCodeEditorArea");
-    if (!codeViewerEl) return;
-    const raw = codeViewerEl.value;
-    try {
-      const jsonMatch = raw.match(/window\.IELTS_K12_GRADES\[\d+\]\s*=\s*(\{[\s\S]*\});?/);
-      if (!jsonMatch) {
-        showToast("Cú pháp file cần giữ nguyên cấu trúc window.IELTS_K12_GRADES[grade] = {...}", "warning");
-        return;
-      }
-      const parsed = JSON.parse(jsonMatch[1].replace(/;\s*$/, ""));
-      window.IELTS_K12_GRADES[state.selectedCodeFileGrade] = parsed;
-      renderAll();
-      showToast("Đã cập nhật dữ liệu trực tiếp cho file data/grade" + state.selectedCodeFileGrade + ".js!", "success");
-    } catch (err) {
-      showToast("Lỗi JSON trong mã nguồn chỉnh sửa: " + err.message, "warning");
-    }
-  }
-
   function switchMainTab(tabId) {
     state.activeTab = tabId;
     const sections = {
       studio: document.getElementById("tabSectionStudio"),
       curriculum: document.getElementById("tabSectionCurriculum"),
-      report: document.getElementById("tabSectionReport"),
-      files: document.getElementById("tabSectionFiles")
+      report: document.getElementById("tabSectionReport")
     };
     Object.keys(sections).forEach(k => {
       if (sections[k]) {
@@ -3339,7 +3215,6 @@ window.IELTSEvaluator = (function() {
 
     if (tabId === "curriculum") renderCurriculumExplorerTab();
     if (tabId === "report") renderDetailedReportTab();
-    if (tabId === "files") renderModularFilesTab();
   }
 
   function populateSystemVoiceSelect() {
@@ -3518,16 +3393,6 @@ window.IELTSEvaluator = (function() {
       speakTimerBtn.addEventListener("click", function() {
         startPart2Timer("speak");
       });
-    }
-
-    const dlGradeBtn = document.getElementById("downloadGradeFileBtn");
-    if (dlGradeBtn) {
-      dlGradeBtn.addEventListener("click", downloadCurrentGradeFile);
-    }
-
-    const saveCodeBtn = document.getElementById("saveGradeCodeBtn");
-    if (saveCodeBtn) {
-      saveCodeBtn.addEventListener("click", applyCustomGradeCodeEdit);
     }
   }
 
